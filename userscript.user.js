@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Miniblox - F3 Extension
 // @namespace    BOT aka @l0calHosT
-// @version      2.18
+// @version      2.24
 // @description  Minecraft-style F3 extensions for Miniblox
 // @match        https://miniblox.io/*
 // @grant        unsafeWindow
@@ -602,354 +602,238 @@ function toggleWireframe() {
         return Math.floor(value / 16);
     }
 
-    function createChunkLine(
-        vertices,
-        color,
-        opacity = 1,
-        bold = false
-    ) {
-        const geometry =
-            new ThreeBufferGeometry();
-
-        geometry.setAttribute(
-            "position",
-            new ThreeFloat32BufferAttribute(
-                vertices,
-                3
-            )
-        );
-
-        const material =
-            new ThreeLineBasicMaterial({
-                color,
-                transparent: opacity < 1,
-                opacity,
-                depthTest: true,
-                depthWrite: false
-            });
-
-        const lines =
-            new ThreeLineSegments(
-                geometry,
-                material
-            );
-
-        lines.renderOrder = 999;
-        lines.frustumCulled = false;
-
-        if (!bold) {
-            return lines;
+    // Thick borders use one solid cylinder per line segment, not parallel duplicate lines.
+    // Cylinder/Mesh constructors are discovered from the bundled Three.js module so this
+    // continues to work with Miniblox's minified export names.
+    function findThreeConstructor(type, probeArgs = []) {
+        for (const candidate of Object.values(threeModule || {})) {
+            if (typeof candidate !== "function") continue;
+            try {
+                const probe = new candidate(...probeArgs);
+                if (probe?.type === type) {
+                    probe.dispose?.();
+                    return candidate;
+                }
+                probe?.dispose?.();
+            } catch {}
         }
-
-        const group = new ThreeGroup();
-        group.add(lines);
-
-        const offsets = [
-            [ 0.055,  0.000],
-            [-0.055,  0.000],
-            [ 0.000,  0.055],
-            [ 0.000, -0.055]
-        ];
-
-        for (const [dx, dz] of offsets) {
-            const shifted = [];
-
-            for (let i = 0; i < vertices.length; i += 3) {
-                shifted.push(
-                    vertices[i] + dx,
-                    vertices[i + 1],
-                    vertices[i + 2] + dz
-                );
-            }
-
-            const duplicateGeometry =
-                new ThreeBufferGeometry();
-
-            duplicateGeometry.setAttribute(
-                "position",
-                new ThreeFloat32BufferAttribute(
-                    shifted,
-                    3
-                )
-            );
-
-            const duplicate =
-                new ThreeLineSegments(
-                    duplicateGeometry,
-                    material.clone()
-                );
-
-            duplicate.renderOrder = 999;
-            duplicate.frustumCulled = false;
-
-            group.add(duplicate);
-        }
-
-        return group;
+        return null;
     }
+
+    const ThreeCylinderGeometry = findThreeConstructor("CylinderGeometry", [1, 1, 1, 6, 1, false]);
+    const ThreeMeshBasicMaterial = findThreeConstructor("MeshBasicMaterial", [{ color: 0xffffff }]);
+    const ThreeMesh = findThreeConstructor("Mesh", [new ThreeBufferGeometry(), new ThreeLineBasicMaterial({ color: 0xffffff })]);
+
+    function addThickSegments(root, vertices, color, radius, depthTest = false, renderOrder = 1002) {
+        if (!ThreeCylinderGeometry || !ThreeMeshBasicMaterial || !ThreeMesh) {
+            // Fallback keeps the borders visible if this Miniblox build changes its exports.
+            const geometry = new ThreeBufferGeometry();
+            geometry.setAttribute("position", new ThreeFloat32BufferAttribute(vertices, 3));
+            const material = new ThreeLineBasicMaterial({ color, depthTest, depthWrite: false, linewidth: 3 });
+            const lines = new ThreeLineSegments(geometry, material);
+            lines.renderOrder = renderOrder;
+            lines.frustumCulled = false;
+            root.add(lines);
+            log("Thick mesh line constructors unavailable; using line fallback.", {
+                cylinder: !!ThreeCylinderGeometry, material: !!ThreeMeshBasicMaterial, mesh: !!ThreeMesh
+            });
+            return;
+        }
+
+        const geometry = new ThreeCylinderGeometry(radius, radius, 1, 6, 1, false);
+        const material = new ThreeMeshBasicMaterial({
+            color, depthTest: false, depthWrite: false, transparent: false,
+            toneMapped: false
+        });
+
+        for (let i = 0; i < vertices.length; i += 6) {
+            const x1 = vertices[i], y1 = vertices[i + 1], z1 = vertices[i + 2];
+            const x2 = vertices[i + 3], y2 = vertices[i + 4], z2 = vertices[i + 5];
+            const dx = x2 - x1, dy = y2 - y1, dz = z2 - z1;
+            const length = Math.hypot(dx, dy, dz);
+            if (!length) continue;
+
+            const mesh = new ThreeMesh(geometry, material);
+            mesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+            mesh.scale.set(1, length, 1);
+            // CylinderGeometry's long axis is Y. All border segments are axis-aligned.
+            if (Math.abs(dx) > 0) mesh.rotation.z = -Math.PI / 2;
+            else if (Math.abs(dz) > 0) mesh.rotation.x = Math.PI / 2;
+            mesh.renderOrder = renderOrder;
+            mesh.frustumCulled = false;
+            root.add(mesh);
+        }
+    }
+
+    // Chunk-border renderer. Yellow perimeter lines and alternating vertical markers, teal vertical markers, a blue
+    // 16x16x16 current-section cube, and red vertical border markers on neighboring chunks.
+    const BORDER_HORIZONTAL_SPACING = 4;
+    const BORDER_CORNER_GAP = 2;
+    const BORDER_VERTICAL_OFFSETS = [2, 6, 10, 14];
+    const BORDER_WORLD_MIN_Y = 0;
+    const BORDER_WORLD_MAX_Y = 255;
 
     function removeChunkBorders() {
         try {
-            if (!chunkBorderRoot) {
-                return;
-            }
-
-            const scene =
-                game.gameScene?.scene;
-
-            if (scene) {
-                scene.remove(chunkBorderRoot);
-            }
-
+            if (!chunkBorderRoot) return;
+            const scene = game.gameScene?.scene;
+            if (scene) scene.remove(chunkBorderRoot);
             chunkBorderRoot.traverse(object => {
-                if (object.geometry) {
-                    object.geometry.dispose();
-                }
-
-                if (object.material) {
-                    if (Array.isArray(object.material)) {
-                        object.material.forEach(
-                            material => material?.dispose?.()
-                        );
-                    } else {
-                        object.material.dispose?.();
-                    }
-                }
+                object.geometry?.dispose?.();
+                if (Array.isArray(object.material)) object.material.forEach(material => material?.dispose?.());
+                else object.material?.dispose?.();
             });
-
             chunkBorderRoot = null;
-
             chunkBorderLastX = null;
             chunkBorderLastY = null;
             chunkBorderLastZ = null;
-
             log("Chunk borders removed.");
-
         } catch (error) {
-            console.error(
-                "[MB F3] Failed removing chunk borders:",
-                error
-            );
+            console.error("[MB F3] Failed removing chunk borders:", error);
         }
     }
 
-    function buildChunkBoundary(
-        cx,
-        cz,
-        minY,
-        maxY,
-        isCurrent
-    ) {
-        const minX = cx * 16;
-        const maxX = minX + 16;
+    function pushSegment(vertices, x1, y1, z1, x2, y2, z2) {
+        vertices.push(x1, y1, z1, x2, y2, z2);
+    }
 
-        const minZ = cz * 16;
-        const maxZ = minZ + 16;
-
-        const verticalVertices = [
-            minX, minY, minZ,
-            minX, maxY, minZ,
-
-            maxX, minY, minZ,
-            maxX, maxY, minZ,
-
-            maxX, minY, maxZ,
-            maxX, maxY, maxZ,
-
-            minX, minY, maxZ,
-            minX, maxY, maxZ
-        ];
-
-        const horizontalVertices = [];
-
-        const firstSection =
-            Math.floor(minY / 16);
-
-        const lastSection =
-            Math.floor((maxY - 1) / 16);
-
-        for (
-            let section = firstSection;
-            section <= lastSection;
-            section++
-        ) {
-            const y = section * 16;
-
-            horizontalVertices.push(
-                minX, y, minZ,
-                maxX, y, minZ,
-
-                maxX, y, minZ,
-                maxX, y, maxZ,
-
-                maxX, y, maxZ,
-                minX, y, maxZ,
-
-                minX, y, maxZ,
-                minX, y, minZ
-            );
+    function addChunkCubeEdges(vertices, minX, minY, minZ, maxX, maxY, maxZ) {
+        for (const x of [minX, maxX]) {
+            for (const z of [minZ, maxZ]) pushSegment(vertices, x, minY, z, x, maxY, z);
         }
-
-        const group =
-            new ThreeGroup();
-
-        group.add(
-            createChunkLine(
-                verticalVertices,
-                isCurrent
-                    ? 0x55ff55
-                    : 0xffffff,
-                isCurrent
-                    ? 1.0
-                    : 0.45,
-                isCurrent
-            )
-        );
-
-        group.add(
-            createChunkLine(
-                horizontalVertices,
-                isCurrent
-                    ? 0x55ff55
-                    : 0xffffff,
-                isCurrent
-                    ? 1.0
-                    : 0.45,
-                isCurrent
-            )
-        );
-
-        return group;
+        for (const y of [minY, maxY]) {
+            pushSegment(vertices, minX, y, minZ, maxX, y, minZ);
+            pushSegment(vertices, maxX, y, minZ, maxX, y, maxZ);
+            pushSegment(vertices, maxX, y, maxZ, minX, y, maxZ);
+            pushSegment(vertices, minX, y, maxZ, minX, y, minZ);
+        }
     }
 
     function buildChunkBorders() {
-        const scene =
-            game.gameScene?.scene;
-
+        const scene = game.gameScene?.scene;
         if (!scene) {
-            log(
-                "Game scene unavailable for chunk borders."
-            );
+            log("Game scene unavailable for chunk borders.");
             return false;
         }
-
-        const pos =
-            getPlayerPosition();
-
+        const pos = getPlayerPosition();
         if (!pos) {
-            log("Player position unavailable.");
+            log("Player position unavailable for chunk borders.");
             return false;
         }
-
-        const currentChunkX =
-            getChunkCoordinate(pos.x);
-
-        const currentChunkZ =
-            getChunkCoordinate(pos.z);
-
-        const currentSectionY =
-            Math.floor(pos.y / 16);
 
         removeChunkBorders();
+        const chunkX = getChunkCoordinate(pos.x);
+        const chunkZ = getChunkCoordinate(pos.z);
+        const sectionY = Math.floor(pos.y / 16);
+        const blueMinY = sectionY * 16;
+        const blueMaxY = blueMinY + 16;
+        const minX = chunkX * 16, maxX = minX + 16;
+        const minZ = chunkZ * 16, maxZ = minZ + 16;
+        const root = new ThreeGroup();
+        root.name = "MB_F3_ChunkBorders";
 
-        const root =
-            new ThreeGroup();
+        // Yellow horizontal perimeter lines every 4 Y blocks. Draw the main 2-block-offset
+        // segments plus the short 2-block corner connectors so the horizontal stripes are
+        // present at the corners too (the vertical teal markers remain a separate layer).
+        const yellowVertices = [];
+        const gap = BORDER_CORNER_GAP;
+        for (let y = BORDER_WORLD_MIN_Y; y <= BORDER_WORLD_MAX_Y; y += BORDER_HORIZONTAL_SPACING) {
+            // Main edge segments, offset 2 blocks from each corner.
+            pushSegment(yellowVertices, minX + gap, y, minZ, maxX - gap, y, minZ);
+            pushSegment(yellowVertices, maxX, y, minZ + gap, maxX, y, maxZ - gap);
+            pushSegment(yellowVertices, maxX - gap, y, maxZ, minX + gap, y, maxZ);
+            pushSegment(yellowVertices, minX, y, maxZ - gap, minX, y, minZ + gap);
 
-        root.name =
-            "MB_F3_ChunkBorders";
-
-        const radius = 2;
-
-        const minSection =
-            currentSectionY - 4;
-
-        const maxSection =
-            currentSectionY + 4;
-
-        const minY =
-            minSection * 16;
-
-        const maxY =
-            (maxSection + 1) * 16;
-
-        for (
-            let cx = currentChunkX - radius;
-            cx <= currentChunkX + radius;
-            cx++
-        ) {
-            for (
-                let cz = currentChunkZ - radius;
-                cz <= currentChunkZ + radius;
-                cz++
-            ) {
-                const isCurrent =
-                    cx === currentChunkX &&
-                    cz === currentChunkZ;
-
-                root.add(
-                    buildChunkBoundary(
-                        cx,
-                        cz,
-                        minY,
-                        maxY,
-                        isCurrent
-                    )
-                );
-            }
+            // Fill each 2-block corner gap with short horizontal yellow segments.
+            pushSegment(yellowVertices, minX, y, minZ, minX + gap, y, minZ);
+            pushSegment(yellowVertices, maxX - gap, y, minZ, maxX, y, minZ);
+            pushSegment(yellowVertices, maxX, y, minZ, maxX, y, minZ + gap);
+            pushSegment(yellowVertices, maxX, y, maxZ - gap, maxX, y, maxZ);
+            pushSegment(yellowVertices, maxX, y, maxZ, maxX - gap, y, maxZ);
+            pushSegment(yellowVertices, minX + gap, y, maxZ, minX, y, maxZ);
+            pushSegment(yellowVertices, minX, y, maxZ, minX, y, maxZ - gap);
+            pushSegment(yellowVertices, minX, y, minZ + gap, minX, y, minZ);
         }
 
-        scene.add(root);
+        // Yellow vertical markers run along the chunk's border edges, not just at
+        // the four corners. Place them at offsets 4, 8 and 12; teal markers occupy
+        // the alternating 2, 6, 10 and 14 positions below.
+        for (const offset of [4, 8, 12]) {
+            const x = minX + offset;
+            const z = minZ + offset;
+            pushSegment(yellowVertices, x, BORDER_WORLD_MIN_Y, minZ, x, BORDER_WORLD_MAX_Y, minZ);
+            pushSegment(yellowVertices, x, BORDER_WORLD_MIN_Y, maxZ, x, BORDER_WORLD_MAX_Y, maxZ);
+            pushSegment(yellowVertices, minX, BORDER_WORLD_MIN_Y, z, minX, BORDER_WORLD_MAX_Y, z);
+            pushSegment(yellowVertices, maxX, BORDER_WORLD_MIN_Y, z, maxX, BORDER_WORLD_MAX_Y, z);
+        }
+        addThickSegments(root, yellowVertices, 0xffff00, 0.45, true, 1005);
 
-        chunkBorderRoot =
-            root;
+        // Teal vertical markers alternate with the yellow markers along all four
+        // borders, extending from Y=0 through Y=255.
+        const tealVertices = [];
+        for (const offset of BORDER_VERTICAL_OFFSETS) {
+            const x = minX + offset, z = minZ + offset;
+            pushSegment(tealVertices, x, BORDER_WORLD_MIN_Y, minZ, x, BORDER_WORLD_MAX_Y, minZ);
+            pushSegment(tealVertices, x, BORDER_WORLD_MIN_Y, maxZ, x, BORDER_WORLD_MAX_Y, maxZ);
+            pushSegment(tealVertices, minX, BORDER_WORLD_MIN_Y, z, minX, BORDER_WORLD_MAX_Y, z);
+            pushSegment(tealVertices, maxX, BORDER_WORLD_MIN_Y, z, maxX, BORDER_WORLD_MAX_Y, z);
+        }
+        addThickSegments(root, tealVertices, 0x20e0d0, 0.45, true, 1005);
 
-        chunkBorderLastX =
-            currentChunkX;
+        // Blue is deliberately a single 16x16x16 cube around the player's current Y section.
+        const blueVertices = [];
+        addChunkCubeEdges(blueVertices, minX, blueMinY, minZ, maxX, blueMaxY, maxZ);
+        addThickSegments(root, blueVertices, 0x168bff, 10, false, 1006);
 
-        chunkBorderLastY =
-            currentSectionY;
-
-        chunkBorderLastZ =
-            currentChunkZ;
-
-        log(
-            "Chunk borders built:",
-            {
-                chunkX: currentChunkX,
-                chunkZ: currentChunkZ,
-                sectionY: currentSectionY
+        // Red outlines follow ALL four vertical edges of every neighboring chunk's
+        // border, not merely its corners. Shared edges are deduplicated by a set.
+        const redVertices = [];
+        const redEdgeKeys = new Set();
+        for (let cx = chunkX - 1; cx <= chunkX + 1; cx++) {
+            for (let cz = chunkZ - 1; cz <= chunkZ + 1; cz++) {
+                if (cx === chunkX && cz === chunkZ) continue;
+                const x1 = cx * 16, x2 = x1 + 16, z1 = cz * 16, z2 = z1 + 16;
+                for (const [x, z] of [
+                    [x1, z1],
+                    [x1, z2],
+                    [x2, z1],
+                    [x2, z2]
+                ]) {
+                    // Never draw red over the current chunk's footprint. The shared
+                    // edge markers belong to the current chunk and must remain yellow/teal.
+                    if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) continue;
+                    const key = `${x},${z}`;
+                    if (redEdgeKeys.has(key)) continue;
+                    redEdgeKeys.add(key);
+                    pushSegment(redVertices, x, BORDER_WORLD_MIN_Y, z, x, BORDER_WORLD_MAX_Y, z);
+                }
             }
-        );
+        }
+        addThickSegments(root, redVertices, 0xff3030, 0.70, true, 1005);
 
+        scene.add(root);
+        chunkBorderRoot = root;
+        chunkBorderLastX = chunkX;
+        chunkBorderLastY = sectionY;
+        chunkBorderLastZ = chunkZ;
+        log("Chunk borders built:", {
+            chunkX, chunkZ, sectionY,
+            yellowSpacing: BORDER_HORIZONTAL_SPACING,
+            tealVerticalOffsets: BORDER_VERTICAL_OFFSETS,
+            verticalExtent: `${BORDER_WORLD_MIN_Y}-${BORDER_WORLD_MAX_Y}`,
+            adjacentChunkRadius: 1
+        });
         return true;
     }
 
     function updateChunkBorders() {
-        if (!chunkBordersEnabled) {
-            return;
-        }
-
-        const pos =
-            getPlayerPosition();
-
-        if (!pos) {
-            return;
-        }
-
-        const cx =
-            getChunkCoordinate(pos.x);
-
-        const cz =
-            getChunkCoordinate(pos.z);
-
-        const cy =
-            Math.floor(pos.y / 16);
-
-        if (
-            cx !== chunkBorderLastX ||
-            cy !== chunkBorderLastY ||
-            cz !== chunkBorderLastZ
-        ) {
+        if (!chunkBordersEnabled) return;
+        const pos = getPlayerPosition();
+        if (!pos) return;
+        const chunkX = getChunkCoordinate(pos.x);
+        const chunkZ = getChunkCoordinate(pos.z);
+        const sectionY = Math.floor(pos.y / 16);
+        if (!chunkBorderRoot || chunkX !== chunkBorderLastX || sectionY !== chunkBorderLastY || chunkZ !== chunkBorderLastZ) {
             buildChunkBorders();
         }
     }
@@ -2698,7 +2582,7 @@ function toggleWireframe() {
             "[F3] F3+B  Toggle entity hitboxes",
             "[F3] F3+C  Copy coordinates",
             "[F3] F3+D  Clear chat",
-            "[F3] F3+G  Toggle chunk borders",
+            "[F3] F3+G  Toggle yellow 3D chunk grid",
             "[F3] F3+L  Start/stop performance recording",
             "[F3] F3+V  Dump version information",
             "[F3] F3+W  Toggle wireframe rendering",
@@ -2980,7 +2864,7 @@ function toggleWireframe() {
                 updateChunkBorders();
             } catch (error) {
                 console.error(
-                    "[MB F3] Chunk border update error:",
+                    "[MB F3] Yellow grid update error:",
                     error
                 );
             }
@@ -3022,4 +2906,5 @@ function toggleWireframe() {
     chatMessage(
         "[F3] F3 Extension loaded — Press F3+Q to show hotkeys"
     );
+
 })();
