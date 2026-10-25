@@ -47,15 +47,12 @@ installWireframeHook();
 
 function toggleWireframe() {
     wireframeSettings.enabled = !wireframeSettings.enabled;
-    console.log("[MB F3] Wireframe:", wireframeSettings.enabled ? "ON" : "OFF");
+
     return wireframeSettings.enabled;
 }
 
 (async () => {
     "use strict";
-
-    const log = (...args) =>
-        console.log("[MB F3]", ...args);
 
     let game = null;
     let gameModule = null;
@@ -127,7 +124,7 @@ function toggleWireframe() {
             const chat = game?.chat;
 
             if (!chat || typeof chat.addChat !== "function") {
-                log("[CHAT]", message);
+
                 return false;
             }
 
@@ -143,8 +140,6 @@ function toggleWireframe() {
                 "[MB F3] Chat message failed:",
                 error
             );
-
-            log("[CHAT]", message);
 
             return false;
         }
@@ -171,11 +166,9 @@ function toggleWireframe() {
     const gameScript = findGameScript();
 
     if (!gameScript) {
-        log("Could not find Miniblox index script.");
+
         return;
     }
-
-    log("Game script:", gameScript.src);
 
     try {
         gameModule = await import(gameScript.src);
@@ -183,11 +176,6 @@ function toggleWireframe() {
         console.error("[MB F3] Game import failed:", error);
         return;
     }
-
-    log(
-        "Miniblox exports:",
-        Object.keys(gameModule).length
-    );
 
     function findGameFromExports() {
         for (const value of Object.values(gameModule)) {
@@ -210,7 +198,6 @@ function toggleWireframe() {
 
     game = findGameFromExports();
 
-    // React fallback
     if (!game) {
         try {
             const element = document.querySelector("#react");
@@ -223,11 +210,9 @@ function toggleWireframe() {
     }
 
     if (!game) {
-        log("Could not find Miniblox game instance.");
+
         return;
     }
-
-    log("Game instance found:", game);
 
     let world = null;
     let player = null;
@@ -254,9 +239,7 @@ function toggleWireframe() {
     }
 
     if (!(await waitForGameObjects())) {
-        log(
-            "Game instance found, but world/player/camera did not become ready."
-        );
+
         return;
     }
 
@@ -292,17 +275,8 @@ function toggleWireframe() {
         }
     );
 
-    log("==============================");
-    log("MINIBLOX GAME CAPTURED");
-    log("game:", game);
-    log("world:", game.world);
-    log("player:", game.player);
-    log("camera:", game.gameScene?.camera);
-    log("gameScene:", game.gameScene);
-    log("==============================");
-
     function findThreeURL() {
-        // First check loaded resources.
+
         try {
             const resources =
                 performance.getEntriesByType("resource");
@@ -325,7 +299,6 @@ function toggleWireframe() {
             }
         } catch {}
 
-        // Then check script tags.
         for (const script of document.scripts) {
             if (!script.src) continue;
 
@@ -341,14 +314,11 @@ function toggleWireframe() {
             } catch {}
         }
 
-        // Known Miniblox Three.js module.
         return location.origin +
             "/assets/three-D8Ud1rlT.js";
     }
 
     const threeURL = findThreeURL();
-
-    log("Three.js module:", threeURL);
 
     try {
         threeModule = await import(threeURL);
@@ -360,8 +330,6 @@ function toggleWireframe() {
 
         return;
     }
-
-    log("Three.js module imported.");
 
     const ThreeGroup =
         threeModule.M;
@@ -378,17 +346,6 @@ function toggleWireframe() {
     const ThreeLineSegments =
         threeModule.z;
 
-    log("Three.js classes:", {
-        Group: !!ThreeGroup,
-        BufferGeometry: !!ThreeBufferGeometry,
-        Float32BufferAttribute:
-            !!ThreeFloat32BufferAttribute,
-        LineBasicMaterial:
-            !!ThreeLineBasicMaterial,
-        LineSegments:
-            !!ThreeLineSegments
-    });
-
     if (
         typeof ThreeGroup !== "function" ||
         typeof ThreeBufferGeometry !== "function" ||
@@ -396,19 +353,9 @@ function toggleWireframe() {
         typeof ThreeLineBasicMaterial !== "function" ||
         typeof ThreeLineSegments !== "function"
     ) {
-        log(
-            "Could not locate required Three.js classes."
-        );
-
-        log(
-            "Three.js exports:",
-            Object.keys(threeModule)
-        );
 
         return;
     }
-
-    log("Required Three.js classes ready.");
 
     function reloadChunks() {
         try {
@@ -419,9 +366,6 @@ function toggleWireframe() {
                 !manager ||
                 typeof manager.reload !== "function"
             ) {
-                log(
-                    "chunkRenderManager.reload() unavailable."
-                );
 
                 return false;
             }
@@ -431,8 +375,6 @@ function toggleWireframe() {
             chatMessage(
                 "[F3] Chunks reloaded"
             );
-
-            log("Chunks reloaded.");
 
             return true;
 
@@ -455,9 +397,6 @@ function toggleWireframe() {
                 gameModule.$o;
 
             if (!settings) {
-                log(
-                    "Miniblox settings object $o unavailable."
-                );
 
                 return false;
             }
@@ -472,11 +411,6 @@ function toggleWireframe() {
                 `[F3] Entity Hitboxes: ${
                     state ? "ON" : "OFF"
                 }`
-            );
-
-            log(
-                "Entity hitboxes:",
-                state
             );
 
             return state;
@@ -499,7 +433,7 @@ function toggleWireframe() {
             const p = game.player;
 
             if (!p?.pos) {
-                log("Player position unavailable.");
+
                 return false;
             }
 
@@ -516,11 +450,6 @@ function toggleWireframe() {
 
             chatMessage(
                 `[F3] Copied: ${command}`
-            );
-
-            log(
-                "Copied coordinates:",
-                command
             );
 
             return true;
@@ -546,23 +475,17 @@ function toggleWireframe() {
                 !chat ||
                 typeof chat.clear !== "function"
             ) {
-                log(
-                    "Native chat.clear() unavailable."
-                );
 
                 return false;
             }
 
             chat.clear();
 
-            // Re-add a small confirmation after clearing.
             setTimeout(() => {
                 chatMessage(
                     "[F3] Chat history cleared"
                 );
             }, 0);
-
-            log("Chat history cleared.");
 
             return true;
 
@@ -602,9 +525,6 @@ function toggleWireframe() {
         return Math.floor(value / 16);
     }
 
-    // Thick borders use one solid cylinder per line segment, not parallel duplicate lines.
-    // Cylinder/Mesh constructors are discovered from the bundled Three.js module so this
-    // continues to work with Miniblox's minified export names.
     function findThreeConstructor(type, probeArgs = []) {
         for (const candidate of Object.values(threeModule || {})) {
             if (typeof candidate !== "function") continue;
@@ -626,7 +546,7 @@ function toggleWireframe() {
 
     function addThickSegments(root, vertices, color, radius, depthTest = false, renderOrder = 1002) {
         if (!ThreeCylinderGeometry || !ThreeMeshBasicMaterial || !ThreeMesh) {
-            // Fallback keeps the borders visible if this Miniblox build changes its exports.
+
             const geometry = new ThreeBufferGeometry();
             geometry.setAttribute("position", new ThreeFloat32BufferAttribute(vertices, 3));
             const material = new ThreeLineBasicMaterial({ color, depthTest, depthWrite: false, linewidth: 3 });
@@ -634,9 +554,7 @@ function toggleWireframe() {
             lines.renderOrder = renderOrder;
             lines.frustumCulled = false;
             root.add(lines);
-            log("Thick mesh line constructors unavailable; using line fallback.", {
-                cylinder: !!ThreeCylinderGeometry, material: !!ThreeMeshBasicMaterial, mesh: !!ThreeMesh
-            });
+
             return;
         }
 
@@ -656,7 +574,7 @@ function toggleWireframe() {
             const mesh = new ThreeMesh(geometry, material);
             mesh.position.set((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
             mesh.scale.set(1, length, 1);
-            // CylinderGeometry's long axis is Y. All border segments are axis-aligned.
+
             if (Math.abs(dx) > 0) mesh.rotation.z = -Math.PI / 2;
             else if (Math.abs(dz) > 0) mesh.rotation.x = Math.PI / 2;
             mesh.renderOrder = renderOrder;
@@ -665,8 +583,6 @@ function toggleWireframe() {
         }
     }
 
-    // Chunk-border renderer. Yellow perimeter lines and alternating vertical markers, teal vertical markers, a blue
-    // 16x16x16 current-section cube, and red vertical border markers on neighboring chunks.
     const BORDER_HORIZONTAL_SPACING = 4;
     const BORDER_CORNER_GAP = 2;
     const BORDER_VERTICAL_OFFSETS = [2, 6, 10, 14];
@@ -687,7 +603,7 @@ function toggleWireframe() {
             chunkBorderLastX = null;
             chunkBorderLastY = null;
             chunkBorderLastZ = null;
-            log("Chunk borders removed.");
+
         } catch (error) {
             console.error("[MB F3] Failed removing chunk borders:", error);
         }
@@ -712,12 +628,12 @@ function toggleWireframe() {
     function buildChunkBorders() {
         const scene = game.gameScene?.scene;
         if (!scene) {
-            log("Game scene unavailable for chunk borders.");
+
             return false;
         }
         const pos = getPlayerPosition();
         if (!pos) {
-            log("Player position unavailable for chunk borders.");
+
             return false;
         }
 
@@ -732,19 +648,15 @@ function toggleWireframe() {
         const root = new ThreeGroup();
         root.name = "MB_F3_ChunkBorders";
 
-        // Yellow horizontal perimeter lines every 4 Y blocks. Draw the main 2-block-offset
-        // segments plus the short 2-block corner connectors so the horizontal stripes are
-        // present at the corners too (the vertical teal markers remain a separate layer).
         const yellowVertices = [];
         const gap = BORDER_CORNER_GAP;
         for (let y = BORDER_WORLD_MIN_Y; y <= BORDER_WORLD_MAX_Y; y += BORDER_HORIZONTAL_SPACING) {
-            // Main edge segments, offset 2 blocks from each corner.
+
             pushSegment(yellowVertices, minX + gap, y, minZ, maxX - gap, y, minZ);
             pushSegment(yellowVertices, maxX, y, minZ + gap, maxX, y, maxZ - gap);
             pushSegment(yellowVertices, maxX - gap, y, maxZ, minX + gap, y, maxZ);
             pushSegment(yellowVertices, minX, y, maxZ - gap, minX, y, minZ + gap);
 
-            // Fill each 2-block corner gap with short horizontal yellow segments.
             pushSegment(yellowVertices, minX, y, minZ, minX + gap, y, minZ);
             pushSegment(yellowVertices, maxX - gap, y, minZ, maxX, y, minZ);
             pushSegment(yellowVertices, maxX, y, minZ, maxX, y, minZ + gap);
@@ -755,9 +667,6 @@ function toggleWireframe() {
             pushSegment(yellowVertices, minX, y, minZ + gap, minX, y, minZ);
         }
 
-        // Yellow vertical markers run along the chunk's border edges, not just at
-        // the four corners. Place them at offsets 4, 8 and 12; teal markers occupy
-        // the alternating 2, 6, 10 and 14 positions below.
         for (const offset of [4, 8, 12]) {
             const x = minX + offset;
             const z = minZ + offset;
@@ -768,8 +677,6 @@ function toggleWireframe() {
         }
         addThickSegments(root, yellowVertices, 0xffff00, 0.45, true, 1005);
 
-        // Teal vertical markers alternate with the yellow markers along all four
-        // borders, extending from Y=0 through Y=255.
         const tealVertices = [];
         for (const offset of BORDER_VERTICAL_OFFSETS) {
             const x = minX + offset, z = minZ + offset;
@@ -780,13 +687,10 @@ function toggleWireframe() {
         }
         addThickSegments(root, tealVertices, 0x20e0d0, 0.45, true, 1005);
 
-        // Blue is deliberately a single 16x16x16 cube around the player's current Y section.
         const blueVertices = [];
         addChunkCubeEdges(blueVertices, minX, blueMinY, minZ, maxX, blueMaxY, maxZ);
         addThickSegments(root, blueVertices, 0x168bff, 10, false, 1006);
 
-        // Red outlines follow ALL four vertical edges of every neighboring chunk's
-        // border, not merely its corners. Shared edges are deduplicated by a set.
         const redVertices = [];
         const redEdgeKeys = new Set();
         for (let cx = chunkX - 1; cx <= chunkX + 1; cx++) {
@@ -799,8 +703,7 @@ function toggleWireframe() {
                     [x2, z1],
                     [x2, z2]
                 ]) {
-                    // Never draw red over the current chunk's footprint. The shared
-                    // edge markers belong to the current chunk and must remain yellow/teal.
+
                     if (x >= minX && x <= maxX && z >= minZ && z <= maxZ) continue;
                     const key = `${x},${z}`;
                     if (redEdgeKeys.has(key)) continue;
@@ -816,13 +719,7 @@ function toggleWireframe() {
         chunkBorderLastX = chunkX;
         chunkBorderLastY = sectionY;
         chunkBorderLastZ = chunkZ;
-        log("Chunk borders built:", {
-            chunkX, chunkZ, sectionY,
-            yellowSpacing: BORDER_HORIZONTAL_SPACING,
-            tealVerticalOffsets: BORDER_VERTICAL_OFFSETS,
-            verticalExtent: `${BORDER_WORLD_MIN_Y}-${BORDER_WORLD_MAX_Y}`,
-            adjacentChunkRadius: 1
-        });
+
         return true;
     }
 
@@ -1159,7 +1056,7 @@ function toggleWireframe() {
         }
 
         chatMessage("[F3] Performance recording stopped — report downloaded", "white");
-        log("Performance recording stopped.");
+
         return true;
     }
 
@@ -1196,7 +1093,6 @@ function toggleWireframe() {
         performanceRecordingRAF = requestAnimationFrame(performanceRecordingFrameLoop);
         recordPerformanceSample();
 
-        // Minecraft defaults to a 10-second profile.
         setTimeout(() => {
             if (performanceRecording) {
                 stopPerformanceRecording(true);
@@ -1204,7 +1100,7 @@ function toggleWireframe() {
         }, 10000);
 
         chatMessage("[F3] Performance recording started (10 seconds max)", "white");
-        log("Performance recording started.");
+
         return true;
     }
 
@@ -1272,7 +1168,7 @@ function toggleWireframe() {
                 }
             }
         } catch (error) {
-            log("Native client version lookup failed:", error);
+
         }
 
         try {
@@ -1290,7 +1186,7 @@ function toggleWireframe() {
                 return match[1];
             }
         } catch (error) {
-            log("Main bundle version fallback failed:", error);
+
         }
 
         return null;
@@ -1396,7 +1292,7 @@ function toggleWireframe() {
 
             return await response.json();
         } catch (error) {
-            log("Version endpoint request failed:", error);
+
             return null;
         }
     }
@@ -1516,20 +1412,12 @@ function toggleWireframe() {
                 "green"
             );
         } catch (error) {
-            log("Version info clipboard copy failed:", error);
+
             chatMessage(
                 "[F3] Could not copy version information to clipboard",
                 "white"
             );
         }
-
-        log("Version information:", {
-            endpointData,
-            nativeClientVersion,
-            moduleVersion,
-            versionObject,
-            scriptUrl
-        });
 
         return dump;
     }
@@ -1561,8 +1449,6 @@ function toggleWireframe() {
                 "green"
             );
 
-            log("Chunk borders: ON");
-
             return true;
         }
 
@@ -1572,8 +1458,6 @@ function toggleWireframe() {
             "[F3] Chunk Borders: OFF",
             "red"
         );
-
-        log("Chunk borders: OFF");
 
         return false;
     }
@@ -1677,13 +1561,6 @@ function toggleWireframe() {
             const ClientSocket = findClientSocketClass();
 
             if (!PacketClass || !ClientSocket) {
-                log(
-                    "Gamemode packet classes unavailable.",
-                    {
-                        SPacketMessage: !!PacketClass,
-                        ClientSocket: !!ClientSocket
-                    }
-                );
 
                 chatMessage(
                     "[F3] Gamemode packet sender unavailable",
@@ -1700,7 +1577,6 @@ function toggleWireframe() {
 
             ClientSocket.sendPacket(packet);
 
-            log("Sent gamemode packet:", `/mode ${mode}`);
             return true;
 
         } catch (error) {
@@ -1759,7 +1635,7 @@ function toggleWireframe() {
 
             return unsafeWindow?.[bridgeName] ?? null;
         } catch (error) {
-            log("Sprite bridge failed:", error);
+
             return null;
         }
     }
@@ -1776,7 +1652,7 @@ function toggleWireframe() {
                 gameModule?.Jo;
 
             if (!resourceManager?.atlas) {
-                log("Gamemode icon atlas unavailable");
+
                 return null;
             }
 
@@ -1789,7 +1665,7 @@ function toggleWireframe() {
             } catch {}
 
             if (!item) {
-                log("Gamemode item not found; trying sprite directly:", itemName);
+
             }
 
             let textureName = itemName;
@@ -1808,7 +1684,7 @@ function toggleWireframe() {
                         textureName = item.getTextureName();
                     }
                 } catch (error) {
-                    log("ItemStack texture lookup failed:", itemName, error);
+
                 }
             }
 
@@ -1840,13 +1716,7 @@ function toggleWireframe() {
             }
 
             if (!sprite || Number(sprite.size) <= 0) {
-                log("Gamemode sprite not found:", {
-                    itemName,
-                    textureName,
-                    directSpriteMap: !!spriteMap,
-                    bridgedSpriteMap: !!unsafeWindow?.__MB_F3_SPRITE_DATA__,
-                    sprite
-                });
+
                 return null;
             }
 
@@ -1895,19 +1765,10 @@ function toggleWireframe() {
 
             const url = canvas.toDataURL("image/png");
 
-            log("Gamemode icon resolved:", {
-                itemName,
-                textureName,
-                sprite,
-                sx,
-                sy,
-                size
-            });
-
             return { url };
 
         } catch (error) {
-            log("Gamemode icon lookup failed:", itemName, error);
+
             return null;
         }
     }
@@ -2193,11 +2054,6 @@ function toggleWireframe() {
 
         updateGamemodeMenu();
 
-        log(
-            "F3+F4 gamemode menu opened:",
-            currentMode
-        );
-
         return true;
     }
 
@@ -2217,7 +2073,6 @@ function toggleWireframe() {
         gamemodePendingMode = mode.id;
         updateGamemodeMenu();
 
-        log("Preview gamemode:", mode.id);
     }
 
     unsafeWindow.Miniblox.openGamemodeMenu =
@@ -2355,7 +2210,7 @@ function toggleWireframe() {
                 proto = Object.getPrototypeOf(proto);
             }
         } catch (error) {
-            log("Native target refresh failed:", error);
+
         }
 
         return false;
@@ -2420,7 +2275,7 @@ function toggleWireframe() {
 
             if (!controller) {
                 chatMessage("[F3] Target controller unavailable", "red");
-                log("F3+I: native target controller unavailable.");
+
                 return false;
             }
 
@@ -2430,7 +2285,7 @@ function toggleWireframe() {
 
             if (!mouseOver) {
                 chatMessage("[F3] Nothing targeted", "red");
-                log("F3+I: objectMouseOver unavailable.");
+
                 return false;
             }
 
@@ -2519,7 +2374,7 @@ function toggleWireframe() {
             }
 
             chatMessage(`[F3] Copied ${data.type} data`, "white");
-            log("F3+I targeted data:", data);
+
             return true;
         } catch (error) {
             console.error("[MB F3] Targeted data failed:", error);
@@ -2654,7 +2509,7 @@ function toggleWireframe() {
             const guiToastURL = findGuiToastURL();
 
             if (!guiToastURL) {
-                log("GuiToast module URL unavailable.");
+
                 return false;
             }
 
@@ -2665,7 +2520,7 @@ function toggleWireframe() {
             const debugOption = settings?.debug;
 
             if (!debugOption || typeof debugOption.value !== "boolean") {
-                log("Native GuiToast debug option unavailable.");
+
                 return false;
             }
 
@@ -2676,7 +2531,6 @@ function toggleWireframe() {
                 "white"
             );
 
-            log("Native F3 debug:", debugOption.value);
             return debugOption.value;
         } catch (error) {
             console.error(
@@ -2705,7 +2559,6 @@ function toggleWireframe() {
                 event.key.toLowerCase();
 
             f3ComboUsed = true;
-
 
             if (key === "a") {
                 event.preventDefault();
@@ -2742,10 +2595,6 @@ function toggleWireframe() {
 
                     chatMessage(
                         "[F3] F3+C held for 10 seconds"
-                    );
-
-                    log(
-                        "F3+C 10-second hold reached."
                     );
 
                 }, 10000);
@@ -2898,10 +2747,6 @@ function toggleWireframe() {
         toggleWireframe,
         showF3Help
     };
-
-    log("==============================");
-    log("MINIBLOX F3 EXTENSION READY");
-    log("==============================");
 
     chatMessage(
         "[F3] F3 Extension loaded — Press F3+Q to show hotkeys"
